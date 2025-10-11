@@ -401,6 +401,29 @@
       font-weight: 600;
     }
 
+    .result-body li strong {
+      display: block;
+    }
+
+    .result-quantity {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 6px;
+      font-weight: 500;
+    }
+
+    .result-quantity-real {
+      font-size: 1.05rem;
+      color: var(--text-color);
+      font-weight: 700;
+    }
+
+    .result-quantity-exact {
+      font-size: 0.9rem;
+      color: var(--muted-text);
+    }
+
     .result-footer {
       display: flex;
       flex-direction: column;
@@ -507,6 +530,40 @@
       transform: translateY(0);
     }
 
+    .cost-group-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      background: rgba(194, 125, 63, 0.08);
+      padding: 12px 16px;
+      border-radius: 14px;
+    }
+
+    .cost-group-bar label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--muted-text);
+    }
+
+    .cost-group-bar select {
+      border-radius: 10px;
+      padding: 8px 10px;
+      border: 1px solid rgba(194, 125, 63, 0.35);
+      background: white;
+      font-size: 0.95rem;
+      min-width: 220px;
+    }
+
+    .group-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -593,6 +650,19 @@
         <h2>Costos a cubrir</h2>
         <button class="ghost-button" id="addCostBtn">Agregar costo</button>
       </div>
+      <div class="cost-group-bar">
+        <label>
+          <span>Cargar grupo</span>
+          <select id="costGroupSelect">
+            <option value="">Todos los costos</option>
+          </select>
+        </label>
+        <div class="group-actions">
+          <button class="ghost-button" id="createGroupBtn" type="button">Crear grupo</button>
+          <button class="ghost-button" id="renameGroupBtn" type="button" disabled>Renombrar</button>
+          <button class="ghost-button" id="deleteGroupBtn" type="button" disabled>Eliminar</button>
+        </div>
+      </div>
       <div id="costsList" class="card-grid"></div>
       <div class="cost-summary">
         <div class="summary-top">
@@ -616,15 +686,11 @@
           <label>
             <span>Período objetivo</span>
             <select id="periodSelect">
+              <option value="diario">Diario</option>
               <option value="semanal">Semanal</option>
               <option value="mensual">Mensual</option>
               <option value="anual">Anual</option>
             </select>
-          </label>
-          <label>
-            <span>Margen de seguridad (%)</span>
-            <input type="range" id="securityMargin" min="0" max="50" step="1" />
-            <div><strong id="securityMarginLabel">0%</strong></div>
           </label>
         </div>
         <div class="parameter-card">
@@ -648,13 +714,13 @@
       <div class="parameter-card">
         <span style="font-weight:600; color: var(--muted-text);">Modo de cálculo</span>
         <div class="mode-selector">
-          <button type="button" data-mode="single">SKU único</button>
+          <button type="button" data-mode="single">Producto único</button>
           <button type="button" data-mode="mix">Mix manual</button>
           <button type="button" data-mode="auto">Opciones automáticas</button>
         </div>
         <div class="mode-panel" data-panel="single">
           <label>
-            <span>Seleccioná un SKU</span>
+            <span>Seleccioná un producto</span>
             <select id="singleSkuSelect"></select>
           </label>
           <button class="primary" id="calculateSingleBtn">Calcular unidades</button>
@@ -666,7 +732,7 @@
           <button class="primary" id="calculateMixBtn">Calcular mix manual</button>
         </div>
         <div class="mode-panel" data-panel="auto">
-          <p style="margin:0; color: var(--muted-text);">Generaremos 5 combinaciones diferentes para cubrir el objetivo según el margen y precio de los SKUs.</p>
+          <p style="margin:0; color: var(--muted-text);">Generaremos 8 combinaciones diferentes para cubrir el objetivo según el margen y precio de los productos.</p>
           <button class="primary" id="generateOptionsBtn">Generar opciones</button>
         </div>
       </div>
@@ -684,11 +750,12 @@
     (function() {
       const SCHEMA_VERSION = 1;
       const STORAGE_KEY = 'rentabilidad_app_state_v1';
-      const PERIOD_LABELS = { semanal: 'Semanal', mensual: 'Mensual', anual: 'Anual' };
+      const PERIOD_LABELS = { diario: 'Diario', semanal: 'Semanal', mensual: 'Mensual', anual: 'Anual' };
       const PERIOD_CONVERSION = {
-        semanal: { semanal: 1, mensual: 4.345, anual: 52 },
-        mensual: { semanal: 1 / 4.345, mensual: 1, anual: 12 },
-        anual: { semanal: 1 / 52, mensual: 1 / 12, anual: 1 }
+        diario: { diario: 1, semanal: 7, mensual: 30, anual: 365 },
+        semanal: { diario: 1 / 7, semanal: 1, mensual: 4.345, anual: 52 },
+        mensual: { diario: 1 / 30, semanal: 1 / 4.345, mensual: 1, anual: 12 },
+        anual: { diario: 1 / 365, semanal: 1 / 52, mensual: 1 / 12, anual: 1 }
       };
 
       const DEFAULT_PRODUCTS = [
@@ -700,6 +767,7 @@
 
       const currencyFormatter = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 });
       const numberFormatter = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const integerFormatter = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
       let state = loadState();
       let lastResults = [];
@@ -721,8 +789,10 @@
         calculateSingleBtn: document.getElementById('calculateSingleBtn'),
         calculateMixBtn: document.getElementById('calculateMixBtn'),
         generateOptionsBtn: document.getElementById('generateOptionsBtn'),
-        securityMargin: document.getElementById('securityMargin'),
-        securityMarginLabel: document.getElementById('securityMarginLabel'),
+        costGroupSelect: document.getElementById('costGroupSelect'),
+        createGroupBtn: document.getElementById('createGroupBtn'),
+        renameGroupBtn: document.getElementById('renameGroupBtn'),
+        deleteGroupBtn: document.getElementById('deleteGroupBtn'),
         totalCostDisplay: document.getElementById('totalCostDisplay'),
         currentPeriodLabel: document.getElementById('currentPeriodLabel'),
         costDetailPanel: document.getElementById('costDetailPanel'),
@@ -741,7 +811,9 @@
           if (parsed.version !== SCHEMA_VERSION) return getDefaultState();
           const merged = Object.assign({}, getDefaultState(), parsed);
           merged.products = Array.isArray(parsed.products) && parsed.products.length ? parsed.products.map(copyProduct) : DEFAULT_PRODUCTS.map(copyProduct);
-          merged.costs = Array.isArray(parsed.costs) ? parsed.costs : [];
+          merged.costs = Array.isArray(parsed.costs) ? parsed.costs.map(copyCost).filter(Boolean) : [];
+          merged.costGroups = Array.isArray(parsed.costGroups) ? parsed.costGroups.map(copyCostGroup).filter(Boolean) : [];
+          merged.activeCostGroupId = parsed.activeCostGroupId && merged.costGroups.some(group => group.id === parsed.activeCostGroupId) ? parsed.activeCostGroupId : null;
           merged.settings = Object.assign({}, getDefaultState().settings, parsed.settings || {});
           ensureMixCompleteness(merged);
           return merged;
@@ -767,13 +839,14 @@
           version: SCHEMA_VERSION,
           products: DEFAULT_PRODUCTS.map(copyProduct),
           costs: [],
+          costGroups: [],
+          activeCostGroupId: null,
           settings: {
             period: 'mensual',
             commissions: { enabled: false, pct: 0, fixed: 0 },
             mode: 'single',
             selectedSkuId: DEFAULT_PRODUCTS[0].id,
-            mix,
-            securityMargin: 0
+            mix
           }
         };
       }
@@ -794,10 +867,23 @@
         return Object.assign({}, product);
       }
 
+      function copyCost(cost) {
+        if (!cost) return null;
+        const cloned = Object.assign({}, cost);
+        cloned.groupId = cloned.groupId || null;
+        return cloned;
+      }
+
+      function copyCostGroup(group) {
+        if (!group || !group.id) return null;
+        return { id: group.id, name: group.name || 'Grupo sin nombre' };
+      }
+
       function init() {
         bindEvents();
         renderParameters();
         renderProducts();
+        renderGroupControls();
         renderCosts();
         updateModeButtons();
         updateModePanels();
@@ -826,13 +912,18 @@
           state.settings.commissions.fixed = parseFloat(ev.target.value) || 0;
           saveState();
         });
-        elements.securityMargin.addEventListener('input', (ev) => {
-          const value = parseFloat(ev.target.value) || 0;
-          state.settings.securityMargin = value;
-          elements.securityMarginLabel.textContent = value + '%';
+        elements.costGroupSelect.addEventListener('change', (ev) => {
+          const groupId = ev.target.value || null;
+          state.activeCostGroupId = groupId;
           saveState();
+          renderCosts();
           updateCostSummary();
+          renderResults([]);
+          renderGroupControls();
         });
+        elements.createGroupBtn.addEventListener('click', handleCreateGroup);
+        elements.renameGroupBtn.addEventListener('click', handleRenameGroup);
+        elements.deleteGroupBtn.addEventListener('click', handleDeleteGroup);
         elements.calculateSingleBtn.addEventListener('click', handleSingleCalculation);
         elements.calculateMixBtn.addEventListener('click', handleMixCalculation);
         elements.generateOptionsBtn.addEventListener('click', handleGenerateOptions);
@@ -854,6 +945,7 @@
           lastResults = [];
           renderParameters();
           renderProducts();
+          renderGroupControls();
           renderCosts();
           updateModeButtons();
           updateModePanels();
@@ -864,10 +956,10 @@
       }
 
       function renderParameters() {
+        if (!PERIOD_LABELS[state.settings.period]) {
+          state.settings.period = 'mensual';
+        }
         elements.periodSelect.value = state.settings.period;
-        const securityValue = state.settings.securityMargin || 0;
-        elements.securityMargin.value = securityValue;
-        elements.securityMarginLabel.textContent = securityValue + '%';
         elements.commissionToggle.checked = !!state.settings.commissions.enabled;
         elements.commissionFields.style.display = state.settings.commissions.enabled ? 'flex' : 'none';
         elements.commissionPct.value = state.settings.commissions.pct || 0;
@@ -1043,30 +1135,41 @@
         elements.calculateMixBtn.style.opacity = withinTolerance ? '1' : '0.6';
       }
 
+      function getActiveCosts() {
+        if (!state.activeCostGroupId) return state.costs.slice();
+        return state.costs.filter(cost => cost.groupId === state.activeCostGroupId);
+      }
+
       function renderCosts() {
         const list = elements.costsList;
         list.innerHTML = '';
-        if (!state.costs.length) {
+        const costs = getActiveCosts();
+        if (!costs.length) {
           const empty = document.createElement('div');
           empty.className = 'empty-state';
-          empty.textContent = 'Todavía no cargaste costos. Agregá uno para comenzar.';
+          empty.textContent = state.activeCostGroupId ? 'Este grupo no tiene costos cargados todavía.' : 'Todavía no cargaste costos. Agregá uno para comenzar.';
           list.appendChild(empty);
           return;
         }
-        state.costs.forEach((cost) => {
+        const showGroupBadge = !state.activeCostGroupId;
+        const activePeriodLabel = (PERIOD_LABELS[state.settings.period] || 'Seleccionado').toLowerCase();
+        costs.forEach((cost) => {
           const card = document.createElement('div');
           card.className = 'cost-card';
           const amountText = currencyFormatter.format(cost.amount);
           const amortizationText = cost.type === 'inversion' ? `Amortiza en ${cost.amortization || 1} períodos` : 'Fijo recurrente';
           const prorated = currencyFormatter.format(prorateCostAmount(cost, state.settings.period));
+          const group = cost.groupId ? state.costGroups.find(g => g.id === cost.groupId) : null;
+          const periodLabel = PERIOD_LABELS[cost.period] || 'Sin período';
           card.innerHTML = `
             <h3>${cost.name}</h3>
             <div class="meta">
               <span class="inline-chip">${cost.type === 'inversion' ? 'Inversión' : 'Fijo'}</span>
-              <span>${amountText} (${PERIOD_LABELS[cost.period]})</span>
+              <span>${amountText} (${periodLabel})</span>
               <span>${amortizationText}</span>
+              ${showGroupBadge && group ? `<span class="inline-chip">Grupo: ${group.name}</span>` : ''}
             </div>
-            <div>Equivale a <strong>${prorated}</strong> por período ${PERIOD_LABELS[state.settings.period].toLowerCase()}.</div>
+            <div>Equivale a <strong>${prorated}</strong> por período ${activePeriodLabel}.</div>
             <div class="actions">
               <button class="edit">Editar</button>
               <button class="delete">Eliminar</button>
@@ -1077,11 +1180,88 @@
           list.appendChild(card);
         });
       }
+
+      function renderGroupControls() {
+        if (!elements.costGroupSelect) return;
+        if (state.activeCostGroupId && !state.costGroups.some(group => group.id === state.activeCostGroupId)) {
+          state.activeCostGroupId = null;
+          saveState();
+          renderResults([]);
+        }
+        const current = state.activeCostGroupId || '';
+        elements.costGroupSelect.innerHTML = '<option value="">Todos los costos</option>' + state.costGroups.map((group) => `<option value="${group.id}">${group.name}</option>`).join('');
+        elements.costGroupSelect.value = current;
+        const hasSelection = Boolean(state.activeCostGroupId);
+        elements.renameGroupBtn.disabled = !hasSelection;
+        elements.deleteGroupBtn.disabled = !hasSelection;
+      }
+
+      function handleCreateGroup() {
+        const name = prompt('Nombre del nuevo grupo de costos:');
+        if (!name) return;
+        const trimmed = name.trim();
+        if (!trimmed) {
+          alert('Ingresá un nombre válido para el grupo.');
+          return;
+        }
+        const newGroup = { id: `group_${Date.now()}`, name: trimmed };
+        state.costGroups.push(newGroup);
+        state.activeCostGroupId = newGroup.id;
+        saveState();
+        renderGroupControls();
+        renderCosts();
+        updateCostSummary();
+        renderResults([]);
+        showToast('Grupo creado');
+      }
+
+      function handleRenameGroup() {
+        if (!state.activeCostGroupId) {
+          alert('Seleccioná un grupo para renombrar.');
+          return;
+        }
+        const group = state.costGroups.find(g => g.id === state.activeCostGroupId);
+        if (!group) return;
+        const name = prompt('Nuevo nombre del grupo:', group.name);
+        if (name === null) return;
+        const trimmed = name.trim();
+        if (!trimmed) {
+          alert('Ingresá un nombre válido para el grupo.');
+          return;
+        }
+        group.name = trimmed;
+        saveState();
+        renderGroupControls();
+        renderCosts();
+        showToast('Grupo renombrado');
+      }
+
+      function handleDeleteGroup() {
+        if (!state.activeCostGroupId) {
+          alert('Seleccioná un grupo para eliminar.');
+          return;
+        }
+        const group = state.costGroups.find(g => g.id === state.activeCostGroupId);
+        if (!group) return;
+        if (!confirm(`¿Eliminar el grupo "${group.name}"? Los costos permanecerán sin grupo.`)) return;
+        state.costGroups = state.costGroups.filter(g => g.id !== group.id);
+        state.costs = state.costs.map((cost) => cost.groupId === group.id ? Object.assign({}, cost, { groupId: null }) : cost);
+        state.activeCostGroupId = null;
+        saveState();
+        renderGroupControls();
+        renderCosts();
+        updateCostSummary();
+        renderResults([]);
+        showToast('Grupo eliminado');
+      }
       function openCostModal(existingCost) {
         const isEdit = Boolean(existingCost);
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
-        const cost = isEdit ? Object.assign({}, existingCost) : { type: 'fijo', period: 'mensual', amortization: 6 };
+        const cost = isEdit ? Object.assign({}, existingCost) : { type: 'fijo', period: 'mensual', amortization: 6, groupId: state.activeCostGroupId || null };
+        cost.groupId = cost.groupId || null;
+        cost.period = cost.period || 'mensual';
+        const groupOptions = state.costGroups.map((group) => `<option value="${group.id}" ${group.id === (cost.groupId || '') ? 'selected' : ''}>${group.name}</option>`).join('');
         overlay.innerHTML = `
           <div class="modal" role="dialog" aria-modal="true">
             <h3>${isEdit ? 'Editar costo' : 'Nuevo costo'}</h3>
@@ -1103,9 +1283,17 @@
             <label>
               <span>Período base</span>
               <select id="costPeriod">
+                <option value="diario" ${cost.period === 'diario' ? 'selected' : ''}>Diario</option>
                 <option value="semanal" ${cost.period === 'semanal' ? 'selected' : ''}>Semanal</option>
                 <option value="mensual" ${cost.period === 'mensual' ? 'selected' : ''}>Mensual</option>
                 <option value="anual" ${cost.period === 'anual' ? 'selected' : ''}>Anual</option>
+              </select>
+            </label>
+            <label>
+              <span>Grupo de costos</span>
+              <select id="costGroupAssignment">
+                <option value="" ${(cost.groupId ? '' : 'selected')}>Sin grupo</option>
+                ${groupOptions}
               </select>
             </label>
             <label id="amortizationRow" style="display:${cost.type === 'inversion' ? 'block' : 'none'};">
@@ -1125,7 +1313,8 @@
           amount: overlay.querySelector('#costAmount'),
           period: overlay.querySelector('#costPeriod'),
           amortization: overlay.querySelector('#costAmortization'),
-          amortizationRow: overlay.querySelector('#amortizationRow')
+          amortizationRow: overlay.querySelector('#amortizationRow'),
+          group: overlay.querySelector('#costGroupAssignment')
         };
         inputs.type.addEventListener('change', () => {
           inputs.amortizationRow.style.display = inputs.type.value === 'inversion' ? 'block' : 'none';
@@ -1152,7 +1341,8 @@
             type: inputs.type.value,
             amount,
             period: inputs.period.value,
-            amortization: inputs.type.value === 'inversion' ? Math.max(1, parseInt(inputs.amortization.value, 10) || 1) : null
+            amortization: inputs.type.value === 'inversion' ? Math.max(1, parseInt(inputs.amortization.value, 10) || 1) : null,
+            groupId: inputs.group.value || null
           };
           if (isEdit) {
             const index = state.costs.findIndex(c => c.id === existingCost.id);
@@ -1163,6 +1353,7 @@
           saveState();
           renderCosts();
           updateCostSummary();
+          renderResults([]);
           close();
           showToast('Costo guardado');
         });
@@ -1174,6 +1365,7 @@
         saveState();
         renderCosts();
         updateCostSummary();
+        renderResults([]);
         showToast('Costo eliminado');
       }
 
@@ -1192,13 +1384,15 @@
       }
 
       function calculateTotalCost() {
-        if (!state.costs.length) return 0;
-        return state.costs.reduce((acc, cost) => acc + prorateCostAmount(cost, state.settings.period), 0);
+        const costs = getActiveCosts();
+        if (!costs.length) return 0;
+        return costs.reduce((acc, cost) => acc + prorateCostAmount(cost, state.settings.period), 0);
       }
 
       function updateCostSummary() {
         const total = calculateTotalCost();
-        elements.currentPeriodLabel.textContent = PERIOD_LABELS[state.settings.period].toLowerCase();
+        const periodLabel = PERIOD_LABELS[state.settings.period] || 'Seleccionado';
+        elements.currentPeriodLabel.textContent = periodLabel.toLowerCase();
         elements.totalCostDisplay.textContent = currencyFormatter.format(total);
         renderCostDetailPanel();
       }
@@ -1206,7 +1400,8 @@
       function renderCostDetailPanel() {
         const panel = elements.costDetailPanel;
         panel.innerHTML = '';
-        if (!state.costs.length) {
+        const costs = getActiveCosts();
+        if (!costs.length) {
           const empty = document.createElement('div');
           empty.className = 'empty-state';
           empty.textContent = 'Cargá costos para ver el detalle.';
@@ -1220,14 +1415,15 @@
           hint.textContent = 'Calculá una opción para estimar la cobertura por costo.';
           panel.appendChild(hint);
         }
-        state.costs.forEach((cost) => {
+        costs.forEach((cost) => {
           const card = document.createElement('div');
           card.className = 'cost-breakdown-card';
           const prorated = prorateCostAmount(cost, state.settings.period);
+          const periodLabel = PERIOD_LABELS[cost.period] || 'Sin período';
           card.innerHTML = `
             <h4>${cost.name}</h4>
             <div>Monto prorrateado: <strong>${currencyFormatter.format(prorated)}</strong></div>
-            <div>Período base: ${PERIOD_LABELS[cost.period]}${cost.type === 'inversion' ? ` · Amortiza en ${cost.amortization || 1} períodos` : ''}</div>
+            <div>Período base: ${periodLabel}${cost.type === 'inversion' ? ` · Amortiza en ${cost.amortization || 1} períodos` : ''}</div>
           `;
           if (lastResults.length && total > 0) {
             const share = prorated / total;
@@ -1276,7 +1472,7 @@
         const product = state.products.find(p => p.id === state.settings.selectedSkuId) || state.products[0];
         if (!product) return;
         const mix = { [product.id]: 1 };
-        const result = buildResultFromMix(`SKU único · ${product.name}`, mix);
+        const result = buildResultFromMix(`Producto único · ${product.name}`, mix);
         renderResults([result]);
       }
 
@@ -1313,31 +1509,56 @@
         const byMargin = [...enriched].sort((a, b) => (b.marginUnit - a.marginUnit));
         const byPrice = [...enriched].sort((a, b) => (a.pricing.priceUnit - b.pricing.priceUnit));
         const combos = [];
+        const usedLetters = new Set();
+        const nextLetter = () => {
+          let code = 65;
+          while (usedLetters.has(String.fromCharCode(code))) {
+            code += 1;
+          }
+          return String.fromCharCode(code);
+        };
+        const pushCombo = (letter, description, mix) => {
+          if (!mix) return;
+          const letterToUse = letter || nextLetter();
+          combos.push({ title: `Opción ${letterToUse} · ${description}`, mix });
+          usedLetters.add(letterToUse);
+        };
         if (byMargin[0]) {
-          combos.push({ title: 'Opción A · Mayor margen', mix: buildMixObject([{ entry: byMargin[0], pct: 1 }]) });
+          pushCombo('A', 'Mayor margen', buildMixObject([{ entry: byMargin[0], pct: 1 }]));
         }
         if (byPrice[0]) {
-          combos.push({ title: 'Opción B · Menor precio final', mix: buildMixObject([{ entry: byPrice[0], pct: 1 }]) });
+          pushCombo('B', 'Menor precio final', buildMixObject([{ entry: byPrice[0], pct: 1 }]));
         }
         if (byMargin[0]) {
           const second = byMargin[1] || byMargin[0];
-          combos.push({ title: 'Opción C · 50/50 mejores márgenes', mix: buildMixObject([{ entry: byMargin[0], pct: 0.5 }, { entry: second, pct: 0.5 }]) });
+          pushCombo('C', '50/50 mejores márgenes', buildMixObject([{ entry: byMargin[0], pct: 0.5 }, { entry: second, pct: 0.5 }]));
         }
         const equalSlice = byMargin.slice(0, Math.min(4, enriched.length));
         if (equalSlice.length) {
           const pct = 1 / equalSlice.length;
-          combos.push({ title: 'Opción D · Mix equilibrado', mix: buildMixObject(equalSlice.map(entry => ({ entry, pct }))) });
+          pushCombo('D', 'Mix equilibrado', buildMixObject(equalSlice.map(entry => ({ entry, pct }))));
         }
         if (byMargin[0]) {
           const third = byMargin[2] || byMargin[1] || byMargin[0];
           const fourth = byMargin[3] || third;
-          combos.push({ title: 'Opción E · Foco en margen + complemento', mix: buildMixObject([{ entry: byMargin[0], pct: 0.6 }, { entry: third, pct: 0.2 }, { entry: fourth, pct: 0.2 }]) });
+          pushCombo('E', 'Foco en margen + complemento', buildMixObject([{ entry: byMargin[0], pct: 0.6 }, { entry: third, pct: 0.2 }, { entry: fourth, pct: 0.2 }]));
         }
-        while (combos.length < 5 && enriched.length) {
+        if (byMargin.length) {
+          const topThree = [byMargin[0], byMargin[1] || byMargin[0], byMargin[2] || byMargin[1] || byMargin[0]];
+          pushCombo('F', 'Top 3 escalonado', buildMixObject([{ entry: topThree[0], pct: 0.5 }, { entry: topThree[1], pct: 0.3 }, { entry: topThree[2], pct: 0.2 }]));
+        }
+        if (byPrice.length > 1) {
+          pushCombo('G', 'Precio competitivo', buildMixObject([{ entry: byPrice[0], pct: 0.6 }, { entry: byPrice[1], pct: 0.4 }]));
+        }
+        if (enriched.length) {
+          const pct = 1 / enriched.length;
+          pushCombo('H', 'Diversificación total', buildMixObject(enriched.map(entry => ({ entry, pct }))));
+        }
+        while (combos.length < 8 && enriched.length) {
           const next = enriched[combos.length % enriched.length];
-          combos.push({ title: `Opción ${String.fromCharCode(65 + combos.length)} · Alternativa`, mix: buildMixObject([{ entry: next, pct: 1 }]) });
+          pushCombo(null, 'Alternativa', buildMixObject([{ entry: next, pct: 1 }]));
         }
-        return combos.slice(0, 5);
+        return combos.slice(0, 8);
       }
 
       function buildMixObject(definitions) {
@@ -1356,7 +1577,8 @@
       }
 
       function buildResultFromMix(title, mixMap) {
-        if (!state.costs.length) {
+        const activeCosts = getActiveCosts();
+        if (!activeCosts.length) {
           return { title, error: 'Cargá costos para poder calcular.' };
         }
         const entries = Object.keys(mixMap || {}).map((id) => {
@@ -1368,7 +1590,7 @@
           return { product, fraction, pricing, marginUnit };
         }).filter(Boolean);
         if (!entries.length) {
-          return { title, error: 'No hay SKUs seleccionados en esta combinación.' };
+          return { title, error: 'No hay productos seleccionados en esta combinación.' };
         }
         const totalFraction = entries.reduce((acc, entry) => acc + entry.fraction, 0);
         if (totalFraction <= 0) {
@@ -1377,24 +1599,26 @@
         entries.forEach((entry) => { entry.fraction = entry.fraction / totalFraction; });
         const targetBase = calculateTotalCost();
         if (targetBase <= 0) {
-          return { title, message: 'El objetivo actual es 0. No se requieren unidades.', items: [], totalRevenue: 0, goalAmount: 0, baseCost: 0, warnings: [] };
+          return { title, message: 'El objetivo actual es 0. No se requieren unidades.', items: [], totalRevenue: 0, totalRevenueExact: 0, totalRevenueReal: 0, goalAmount: 0, baseCost: 0, warnings: [], totalUnits: 0, totalUnitsExact: 0, totalUnitsReal: 0 };
         }
-        const securityFactor = 1 + ((state.settings.securityMargin || 0) / 100);
-        const adjustedTarget = targetBase * securityFactor;
         const marginSum = entries.reduce((acc, entry) => acc + (entry.marginUnit * entry.fraction), 0);
         if (marginSum <= 0) {
           return { title, error: 'La combinación no es viable: margen neto no positivo.' };
         }
-        const totalUnits = adjustedTarget / marginSum;
+        const totalUnits = targetBase / marginSum;
         const items = entries.map((entry) => {
           const units = totalUnits * entry.fraction;
           const boxes = units / entry.product.unitsPerBox;
+          const roundedBoxes = Math.ceil(boxes);
+          const roundedUnits = roundedBoxes * entry.product.unitsPerBox;
           const marginPct = entry.pricing.netUnit > 0 ? (entry.marginUnit / entry.pricing.netUnit) : 0;
           const minWarning = units < entry.product.minUnits;
           return {
             product: entry.product,
             units,
             boxes,
+            roundedUnits,
+            roundedBoxes,
             pricing: entry.pricing,
             marginUnit: entry.marginUnit,
             marginPct,
@@ -1402,6 +1626,8 @@
           };
         });
         const totalRevenue = items.reduce((acc, item) => acc + (item.units * item.pricing.priceUnit), 0);
+        const totalRevenueReal = items.reduce((acc, item) => acc + (item.roundedUnits * item.pricing.priceUnit), 0);
+        const totalUnitsReal = items.reduce((acc, item) => acc + item.roundedUnits, 0);
         const warnings = [];
         items.forEach((item) => {
           if (item.marginPct < 0.35) {
@@ -1416,11 +1642,14 @@
           title,
           items,
           totalRevenue,
-          goalAmount: adjustedTarget,
+          totalRevenueExact: totalRevenue,
+          totalRevenueReal,
+          goalAmount: targetBase,
           baseCost: targetBase,
           warnings,
           totalUnits,
-          securityFactor,
+          totalUnitsExact: totalUnits,
+          totalUnitsReal,
           mixMap
         };
         result.copyText = buildCopyText(result);
@@ -1430,10 +1659,13 @@
       function buildCopyText(result) {
         const lines = [];
         lines.push(`Opción: ${result.title}`);
-        lines.push(`Objetivo a cubrir: ${currencyFormatter.format(result.goalAmount)}${result.securityFactor && result.securityFactor > 1 ? ` (incluye margen de seguridad ${numberFormatter.format((result.securityFactor - 1) * 100)}%)` : ''}`);
-        lines.push(`Facturación estimada: ${currencyFormatter.format(result.totalRevenue)}`);
+        lines.push(`Objetivo a cubrir: ${currencyFormatter.format(result.goalAmount)}`);
+        const exact = typeof result.totalRevenueExact === 'number' ? result.totalRevenueExact : result.totalRevenue;
+        const real = typeof result.totalRevenueReal === 'number' ? result.totalRevenueReal : exact;
+        lines.push(`Facturación estimada: ${currencyFormatter.format(exact)}`);
+        lines.push(`Facturación real: ${currencyFormatter.format(real)}`);
         result.items.forEach((item) => {
-          lines.push(`- ${item.product.name}: ${formatUnits(item.units)} u (${formatBoxes(item.boxes)} cajas)`);
+          lines.push(`- ${item.product.name}: Real ${formatInteger(item.roundedBoxes)} cajas (${formatInteger(item.roundedUnits)} u) · Exacta ${formatBoxes(item.boxes)} cajas (${formatUnits(item.units)} u)`);
         });
         if (result.warnings && result.warnings.length) {
           lines.push('Alertas:');
@@ -1471,7 +1703,13 @@
               const list = document.createElement('ul');
               result.items.forEach((item) => {
                 const li = document.createElement('li');
-                li.innerHTML = `<strong>${item.product.name}</strong><br>${formatUnits(item.units)} u (${formatBoxes(item.boxes)} cajas)`;
+                li.innerHTML = `
+                  <strong>${item.product.name}</strong>
+                  <div class="result-quantity">
+                    <div class="result-quantity-real">Real: ${formatInteger(item.roundedBoxes)} cajas (${formatInteger(item.roundedUnits)} unidades)</div>
+                    <div class="result-quantity-exact">Exacta: ${formatBoxes(item.boxes)} cajas (${formatUnits(item.units)} unidades)</div>
+                  </div>
+                `;
                 list.appendChild(li);
               });
               body.appendChild(list);
@@ -1486,14 +1724,19 @@
             footer.className = 'result-footer';
             if (typeof result.goalAmount === 'number') {
               const goal = document.createElement('div');
-              const note = result.securityFactor && result.securityFactor > 1 ? ` (incluye margen de seguridad ${numberFormatter.format((result.securityFactor - 1) * 100)}%)` : '';
-              goal.innerHTML = `<strong>Objetivo a cubrir:</strong> ${currencyFormatter.format(result.goalAmount)}${note}`;
+              goal.innerHTML = `<strong>Objetivo a cubrir:</strong> ${currencyFormatter.format(result.goalAmount)}`;
               footer.appendChild(goal);
             }
-            if (typeof result.totalRevenue === 'number') {
+            if (typeof result.totalRevenueExact === 'number' || typeof result.totalRevenue === 'number') {
               const revenue = document.createElement('div');
-              revenue.innerHTML = `<strong>Facturación estimada:</strong> ${currencyFormatter.format(result.totalRevenue)}`;
+              const exact = typeof result.totalRevenueExact === 'number' ? result.totalRevenueExact : result.totalRevenue;
+              revenue.innerHTML = `<strong>Facturación estimada:</strong> ${currencyFormatter.format(exact)}`;
               footer.appendChild(revenue);
+            }
+            if (typeof result.totalRevenueReal === 'number') {
+              const revenueReal = document.createElement('div');
+              revenueReal.innerHTML = `<strong>Facturación real:</strong> ${currencyFormatter.format(result.totalRevenueReal)}`;
+              footer.appendChild(revenueReal);
             }
             if (result.items && result.items.length) {
               const copyBtn = document.createElement('button');
@@ -1553,6 +1796,10 @@
 
       function formatBoxes(value) {
         return numberFormatter.format(value);
+      }
+
+      function formatInteger(value) {
+        return integerFormatter.format(value || 0);
       }
 
       function showToast(message) {
