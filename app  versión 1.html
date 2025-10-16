@@ -679,6 +679,7 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  <div id="modal-root"></div>
 
   <script>
     (function() {
@@ -730,6 +731,230 @@
         costDetailToggleLabel: document.getElementById('costDetailToggleLabel'),
         toast: document.getElementById('toast')
       };
+
+      const modalRoot = ensureModalRoot();
+      const focusableSelectors = 'a[href], button, textarea, input, select, [tabindex]:not([tabindex="-1"])';
+
+      function ensureModalRoot() {
+        let root = document.getElementById('modal-root');
+        if (!root) {
+          root = document.createElement('div');
+          root.id = 'modal-root';
+          document.body.appendChild(root);
+        }
+        return root;
+      }
+
+      function getFocusableElements(container) {
+        return Array.from(container.querySelectorAll(focusableSelectors)).filter((element) => {
+          return !element.disabled && element.getAttribute('tabindex') !== '-1' && element.offsetParent !== null;
+        });
+      }
+
+      function setupModalLifecycle(overlay, modal, { onCancel, initialFocus }) {
+        const previouslyFocused = document.activeElement;
+        let focusableElements = getFocusableElements(modal);
+        if (!focusableElements.length) {
+          modal.setAttribute('tabindex', '-1');
+          focusableElements = [modal];
+        }
+        const focusTarget = initialFocus && typeof initialFocus.focus === 'function' ? initialFocus : focusableElements[0];
+        const handleKeyDown = (event) => {
+          if (event.key === 'Tab') {
+            if (!focusableElements.length) {
+              event.preventDefault();
+              return;
+            }
+            const first = focusableElements[0];
+            const last = focusableElements[focusableElements.length - 1];
+            if (event.shiftKey) {
+              if (!modal.contains(document.activeElement) || document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+              }
+            } else if (document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            onCancel();
+          }
+        };
+        const handleOverlayClick = (event) => {
+          if (event.target === overlay) {
+            onCancel();
+          }
+        };
+        overlay.addEventListener('keydown', handleKeyDown);
+        overlay.addEventListener('click', handleOverlayClick);
+        setTimeout(() => {
+          if (focusTarget) focusTarget.focus();
+        }, 0);
+        return () => {
+          overlay.removeEventListener('keydown', handleKeyDown);
+          overlay.removeEventListener('click', handleOverlayClick);
+          if (overlay.parentNode) {
+            overlay.parentNode.removeChild(overlay);
+          }
+          if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+            previouslyFocused.focus();
+          }
+        };
+      }
+
+      async function openAlertModal({ title, message }) {
+        return new Promise((resolve) => {
+          const overlay = document.createElement('div');
+          overlay.className = 'modal-overlay';
+          const modal = document.createElement('div');
+          modal.className = 'modal';
+          modal.setAttribute('role', 'dialog');
+          modal.setAttribute('aria-modal', 'true');
+          const titleId = `modal-title-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          modal.setAttribute('aria-labelledby', titleId);
+          const heading = document.createElement('h3');
+          heading.id = titleId;
+          heading.textContent = title;
+          modal.appendChild(heading);
+          if (message) {
+            const messageId = `modal-message-${Math.random().toString(16).slice(2)}`;
+            const paragraph = document.createElement('p');
+            paragraph.id = messageId;
+            paragraph.textContent = message;
+            modal.setAttribute('aria-describedby', messageId);
+            modal.appendChild(paragraph);
+          }
+          const actions = document.createElement('div');
+          actions.className = 'modal-actions';
+          const confirmBtn = document.createElement('button');
+          confirmBtn.className = 'confirm';
+          confirmBtn.textContent = 'Entendido';
+          actions.appendChild(confirmBtn);
+          modal.appendChild(actions);
+          overlay.appendChild(modal);
+          modalRoot.appendChild(overlay);
+          let closed = false;
+          let cleanup;
+          const close = () => {
+            if (closed) return;
+            closed = true;
+            if (cleanup) cleanup();
+            resolve();
+          };
+          cleanup = setupModalLifecycle(overlay, modal, { onCancel: close, initialFocus: confirmBtn });
+          confirmBtn.addEventListener('click', close);
+        });
+      }
+
+      async function openConfirmModal({ title, message, confirmText = 'Confirmar', cancelText = 'Cancelar' }) {
+        return new Promise((resolve) => {
+          const overlay = document.createElement('div');
+          overlay.className = 'modal-overlay';
+          const modal = document.createElement('div');
+          modal.className = 'modal';
+          modal.setAttribute('role', 'dialog');
+          modal.setAttribute('aria-modal', 'true');
+          const titleId = `modal-title-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          modal.setAttribute('aria-labelledby', titleId);
+          const heading = document.createElement('h3');
+          heading.id = titleId;
+          heading.textContent = title;
+          modal.appendChild(heading);
+          if (message) {
+            const messageId = `modal-message-${Math.random().toString(16).slice(2)}`;
+            const paragraph = document.createElement('p');
+            paragraph.id = messageId;
+            paragraph.textContent = message;
+            modal.setAttribute('aria-describedby', messageId);
+            modal.appendChild(paragraph);
+          }
+          const actions = document.createElement('div');
+          actions.className = 'modal-actions';
+          const cancelBtn = document.createElement('button');
+          cancelBtn.className = 'cancel';
+          cancelBtn.textContent = cancelText;
+          const confirmBtn = document.createElement('button');
+          confirmBtn.className = 'confirm';
+          confirmBtn.textContent = confirmText;
+          actions.appendChild(cancelBtn);
+          actions.appendChild(confirmBtn);
+          modal.appendChild(actions);
+          overlay.appendChild(modal);
+          modalRoot.appendChild(overlay);
+          let closed = false;
+          let cleanup;
+          const close = (result) => {
+            if (closed) return;
+            closed = true;
+            if (cleanup) cleanup();
+            resolve(result);
+          };
+          cleanup = setupModalLifecycle(overlay, modal, { onCancel: () => close(false), initialFocus: confirmBtn });
+          cancelBtn.addEventListener('click', () => close(false));
+          confirmBtn.addEventListener('click', () => close(true));
+        });
+      }
+
+      async function openPromptModal({ title, label, placeholder = '', initialValue = '', confirmText = 'Aceptar', cancelText = 'Cancelar' }) {
+        return new Promise((resolve) => {
+          const overlay = document.createElement('div');
+          overlay.className = 'modal-overlay';
+          const modal = document.createElement('div');
+          modal.className = 'modal';
+          modal.setAttribute('role', 'dialog');
+          modal.setAttribute('aria-modal', 'true');
+          const titleId = `modal-title-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          modal.setAttribute('aria-labelledby', titleId);
+          const heading = document.createElement('h3');
+          heading.id = titleId;
+          heading.textContent = title;
+          modal.appendChild(heading);
+          const fieldId = `modal-input-${Math.random().toString(16).slice(2)}`;
+          const fieldLabel = document.createElement('label');
+          const span = document.createElement('span');
+          span.textContent = label;
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.id = fieldId;
+          input.placeholder = placeholder;
+          input.value = initialValue;
+          fieldLabel.setAttribute('for', fieldId);
+          fieldLabel.appendChild(span);
+          fieldLabel.appendChild(input);
+          modal.appendChild(fieldLabel);
+          const actions = document.createElement('div');
+          actions.className = 'modal-actions';
+          const cancelBtn = document.createElement('button');
+          cancelBtn.className = 'cancel';
+          cancelBtn.textContent = cancelText;
+          const confirmBtn = document.createElement('button');
+          confirmBtn.className = 'confirm';
+          confirmBtn.textContent = confirmText;
+          actions.appendChild(cancelBtn);
+          actions.appendChild(confirmBtn);
+          modal.appendChild(actions);
+          overlay.appendChild(modal);
+          modalRoot.appendChild(overlay);
+          let closed = false;
+          let cleanup;
+          const close = (result) => {
+            if (closed) return;
+            closed = true;
+            if (cleanup) cleanup();
+            resolve(result);
+          };
+          cleanup = setupModalLifecycle(overlay, modal, { onCancel: () => close(null), initialFocus: input });
+          cancelBtn.addEventListener('click', () => close(null));
+          confirmBtn.addEventListener('click', () => close(input.value));
+          input.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              confirmBtn.click();
+            }
+          });
+        });
+      }
 
       init();
 
@@ -847,20 +1072,23 @@
         });
       }
 
-      function handleReset() {
-        if (confirm('¿Seguro que querés borrar todos los datos guardados?')) {
-          localStorage.removeItem(STORAGE_KEY);
-          state = getDefaultState();
-          lastResults = [];
-          renderParameters();
-          renderProducts();
-          renderCosts();
-          updateModeButtons();
-          updateModePanels();
-          updateCostSummary();
-          renderResults([]);
-          showToast('Datos restaurados');
-        }
+      async function handleReset() {
+        const confirmed = await openConfirmModal({
+          title: 'Borrar datos',
+          message: '¿Seguro que querés borrar todos los datos guardados?'
+        }); // REPLACED: native dialog → internal modal
+        if (!confirmed) return;
+        localStorage.removeItem(STORAGE_KEY);
+        state = getDefaultState();
+        lastResults = [];
+        renderParameters();
+        renderProducts();
+        renderCosts();
+        updateModeButtons();
+        updateModePanels();
+        updateCostSummary();
+        renderResults([]);
+        showToast('Datos restaurados');
       }
 
       function renderParameters() {
@@ -936,10 +1164,13 @@
           value: currentValue,
           min: 0,
           step: 1,
-          onConfirm: (value) => {
+          onConfirm: async (value) => {
             const numeric = parseFloat(value);
             if (isNaN(numeric) || numeric <= 0) {
-              alert('Ingresá un valor numérico mayor a 0.');
+              await openAlertModal({
+                title: 'Valor inválido',
+                message: 'Ingresá un valor numérico mayor a 0.'
+              }); // REPLACED: native dialog → internal modal
               return false;
             }
             if (isPrice) {
@@ -980,8 +1211,8 @@
           if (event.target === overlay) close();
         });
         overlay.querySelector('.cancel').addEventListener('click', close);
-        overlay.querySelector('.confirm').addEventListener('click', () => {
-          const accepted = onConfirm(input.value);
+        overlay.querySelector('.confirm').addEventListener('click', async () => {
+          const accepted = await onConfirm(input.value);
           if (accepted !== false) close();
         });
       }
@@ -1135,15 +1366,21 @@
           if (event.target === overlay) close();
         });
         overlay.querySelector('.cancel').addEventListener('click', close);
-        overlay.querySelector('.confirm').addEventListener('click', () => {
+        overlay.querySelector('.confirm').addEventListener('click', async () => {
           const name = inputs.name.value.trim();
           const amount = parseFloat(inputs.amount.value);
           if (!name) {
-            alert('Ingresá un nombre para el costo.');
+            await openAlertModal({
+              title: 'Nombre requerido',
+              message: 'Ingresá un nombre para el costo.'
+            }); // REPLACED: native dialog → internal modal
             return;
           }
           if (isNaN(amount) || amount <= 0) {
-            alert('Ingresá un monto válido.');
+            await openAlertModal({
+              title: 'Monto inválido',
+              message: 'Ingresá un monto válido.'
+            }); // REPLACED: native dialog → internal modal
             return;
           }
           const costData = {
@@ -1168,8 +1405,12 @@
         });
       }
 
-      function deleteCost(id) {
-        if (!confirm('¿Eliminar este costo?')) return;
+      async function deleteCost(id) {
+        const confirmed = await openConfirmModal({
+          title: 'Eliminar costo',
+          message: '¿Eliminar este costo?'
+        }); // REPLACED: native dialog → internal modal
+        if (!confirmed) return;
         state.costs = state.costs.filter(c => c.id !== id);
         saveState();
         renderCosts();
@@ -1531,7 +1772,7 @@
         }
       }
 
-      function fallbackCopy(text) {
+      async function fallbackCopy(text) {
         const textarea = document.createElement('textarea');
         textarea.value = text;
         textarea.style.position = 'fixed';
@@ -1542,7 +1783,10 @@
           document.execCommand('copy');
           showToast('Resultado copiado');
         } catch (error) {
-          alert('No se pudo copiar automáticamente, copiá el texto manualmente.');
+          await openAlertModal({
+            title: 'Copiá el resultado',
+            message: 'No se pudo copiar automáticamente, copiá el texto manualmente.'
+          }); // REPLACED: native dialog → internal modal
         }
         document.body.removeChild(textarea);
       }
